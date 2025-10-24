@@ -98,6 +98,22 @@ const SaleForm = ({ initialData, buyers, products, onSubmit, onCancel, loading }
   const handleProductSelect = (idx, productId) => {
     const product = products.find(p => p._id === productId);
     if (product) {
+      // Calculate how much of this product is already in the cart
+      const existingCartQuantity = formData.items
+        .filter(item => item.product === productId)
+        .reduce((total, item) => total + (item.quantity || 0), 0);
+      
+      // Calculate real-time available stock
+      const realTimeStock = product.quantity - existingCartQuantity;
+      
+      // Check real-time stock levels before adding to sale
+      if (realTimeStock <= 0) {
+        showError(`Out of Stock: ${product.name} is currently out of stock or all available quantity is already in cart. Available: ${realTimeStock}, In Cart: ${existingCartQuantity}`);
+        return; // Don't add the product to the sale
+      } else if (realTimeStock <= product.minquantity) {
+        showWarning(`Low Stock Alert: ${product.name}. Available after addition: ${realTimeStock - 1}, Minimum: ${product.minquantity}, Currently in cart: ${existingCartQuantity+1}`);
+      }
+
       setFormData(prev => {
         const items = [...prev.items];
         items[idx] = {
@@ -188,9 +204,31 @@ const SaleForm = ({ initialData, buyers, products, onSubmit, onCancel, loading }
                           overflowWrap: "break-word",}}
                 >
                   <option value="">Select Product</option>
-                  {products.map(product => (
-                    <option key={product._id} value={product._id}>{product.name}</option>
-                  ))}
+                  {products.map(product => {
+                    // Calculate how much of this product is already in the cart
+                    const existingCartQuantity = formData.items
+                      .filter(item => item.product === product._id)
+                      .reduce((total, item) => total + (item.quantity || 0), 0);
+                    
+                    // Calculate real-time available stock
+                    const realTimeStock = product.quantity - existingCartQuantity;
+                    
+                    return (
+                      <option 
+                        key={product._id} 
+                        value={product._id}
+                        disabled={realTimeStock <= 0}
+                        style={{
+                          color: realTimeStock <= 0 ? '#dc3545' : 
+                                 realTimeStock <= product.minquantity ? '#ffc107' : '#000'
+                        }}
+                      >
+                        {product.name} {realTimeStock <= 0 ? `(Out of Stock - ${existingCartQuantity} in cart)` : 
+                                       realTimeStock <= product.minquantity ? `(Low Stock: ${realTimeStock} available, ${existingCartQuantity} in cart)` : 
+                                       `(Available: ${realTimeStock}, ${existingCartQuantity} in cart)`}
+                      </option>
+                    );
+                  })}
                 </Form.Select>
               </td>
               <td>{item.barcode}</td>
@@ -365,6 +403,8 @@ const PrintStyles = createGlobalStyle`
       padding: 0 !important;
       background: white !important;
       margin: 0 !important;
+      display: block !important;
+      visibility: visible !important;
     }
     
     @page {
@@ -386,6 +426,8 @@ const PrintStyles = createGlobalStyle`
       page-break-after: avoid;
       -webkit-print-color-adjust: exact !important;
       color-adjust: exact !important;
+      display: block !important;
+      visibility: visible !important;
     }
     
     /* Force colors to print */
@@ -752,42 +794,28 @@ const InvoiceHeader = styled.div`
   margin-bottom: 1.5rem;
   border-bottom: 3px solid #3498db;
   padding-bottom: 1rem;
+  width: 100%;
   
   @media print {
     border-bottom: 3px solid #3498db !important;
     -webkit-print-color-adjust: exact !important;
     color-adjust: exact !important;
+    print-color-adjust: exact !important;
     margin-bottom: 1rem !important;
     padding-bottom: 0.8rem !important;
-  }
-  
-  h1 {
-    color: #3498db;
-    font-size: 2rem;
-    margin-bottom: 0.3rem;
-    font-weight: bold;
+    width: 100% !important;
     
-    @media print {
-      color: #3498db !important;
-      font-size: 24pt !important;
-      margin-bottom: 0.2rem !important;
+    * {
       -webkit-print-color-adjust: exact !important;
       color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      display: block !important;
+      visibility: visible !important;
     }
-  }
-  
-  h2 {
-    color: #666;
-    font-size: 1rem;
-    margin: 0;
-    font-weight: normal;
     
-    @media print {
-      color: #666 !important;
-      font-size: 14pt !important;
-      margin: 0 !important;
-      -webkit-print-color-adjust: exact !important;
-      color-adjust: exact !important;
+    div {
+      display: flex !important;
+      visibility: visible !important;
     }
   }
 `;
@@ -1515,6 +1543,14 @@ const Sales = () => {
       const productMatch = products.find(p => p.barcode === scannedCode);
       
       if (productMatch) {
+        // Calculate how much of this product is already in the cart
+        const existingCartQuantity = formData.items
+          .filter(item => item.barcode === scannedCode)
+          .reduce((total, item) => total + (item.quantity || 0), 0);
+        
+        // Calculate real-time available stock
+        const realTimeStock = productMatch.quantity - existingCartQuantity;
+        
         // We found a matching product in our already fetched products
         const enhancedProduct = {
           _id: productMatch._id,
@@ -1522,13 +1558,20 @@ const Sales = () => {
           category: productMatch.category || 'Unknown',
           description: productMatch.description || '',
           currentStock: productMatch.quantity || 0,
+          realTimeStock: realTimeStock,
           minStock: productMatch.minquantity || 0,
           price: productMatch.price
         };
         
-        // Check if this product is at or below minimum stock level
-        if (productMatch.quantity <= productMatch.minquantity) {
-          showWarning(`Low Stock Alert: ${productMatch.name} has reached minimum stock level. Current: ${productMatch.quantity}, Minimum: ${productMatch.minquantity}`);
+        // Check real-time stock levels and handle accordingly
+        if (realTimeStock <= 0) {
+          // Block sales if real-time stock is 0 or negative
+          showError(`Out of Stock: ${productMatch.name} is currently out of stock or all available quantity is already in cart. Available: ${realTimeStock}, In Cart: ${existingCartQuantity}`);
+          setScannedCode("");
+          return; // Exit function to prevent adding the item
+        } else if (realTimeStock <= productMatch.minquantity) {
+          // Show warning but allow sales if real-time stock <= minquantity (but not 0)
+          showWarning(`Low Stock Alert: ${productMatch.name} Available after scan: ${realTimeStock - 1}, Minimum: ${productMatch.minquantity}, Currently in cart: ${existingCartQuantity+1}`);
         }
         
         setFormData((prev) => {
@@ -1570,6 +1613,14 @@ const Sales = () => {
           if (productResponse.data) {
             const productDetails = productResponse.data;
             
+            // Calculate how much of this product is already in the cart
+            const existingCartQuantity = formData.items
+              .filter(item => item.barcode === scannedCode)
+              .reduce((total, item) => total + (item.quantity || 0), 0);
+            
+            // Calculate real-time available stock
+            const realTimeStock = productDetails.quantity - existingCartQuantity;
+            
             // Create enhanced product object
             const enhancedProduct = {
               _id: productDetails._id,
@@ -1577,13 +1628,20 @@ const Sales = () => {
               category: productDetails.category || 'Unknown',
               description: productDetails.description || '',
               currentStock: productDetails.quantity || 0,
+              realTimeStock: realTimeStock,
               minStock: productDetails.minquantity || 0,
               price: productDetails.price
             };
             
-            // Check for low stock
-            if (productDetails.quantity <= productDetails.minquantity) {
-              showWarning(`Low Stock Alert: ${enhancedProduct.name} has reached minimum stock level. Current: ${productDetails.quantity}, Minimum: ${productDetails.minquantity}`);
+            // Check real-time stock levels and handle accordingly
+            if (realTimeStock <= 0) {
+              // Block sales if real-time stock is 0 or negative
+              showError(`Out of Stock: ${enhancedProduct.name} is currently out of stock or all available quantity is already in cart. Available: ${realTimeStock}, In Cart: ${existingCartQuantity}`);
+              setScannedCode("");
+              return; // Exit function to prevent adding the item
+            } else if (realTimeStock <= productDetails.minquantity) {
+              // Show warning but allow sales if real-time stock <= minquantity (but not 0)
+              showWarning(`Low Stock Alert: ${enhancedProduct.name}. Available after scan: ${realTimeStock -1}, Minimum: ${productDetails.minquantity}, Currently in cart: ${existingCartQuantity+1}`);
             }
             
             setFormData((prev) => {
@@ -1658,6 +1716,14 @@ const Sales = () => {
         console.error("Failed to fetch detailed product info:", productError);
       }
       
+      // Calculate how much of this product is already in the cart
+      const existingCartQuantity = formData.items
+        .filter(item => item.barcode === scannedCode)
+        .reduce((total, item) => total + (item.quantity || 0), 0);
+      
+      // Calculate real-time available stock
+      const realTimeStock = (productDetails?.quantity || 0) - existingCartQuantity;
+      
       // Combine the product data from the scan response with our additional product details
       const enhancedProduct = {
         ...scannedItem.product,
@@ -1665,15 +1731,25 @@ const Sales = () => {
         category: productDetails?.category || scannedItem.product?.category || 'Unknown',
         description: productDetails?.description || scannedItem.product?.description || '',
         currentStock: productDetails?.quantity || 0,
+        realTimeStock: realTimeStock,
         minStock: productDetails?.minquantity || 0
       };
       
-      // Check for low stock
-      if (productDetails && productDetails.quantity <= productDetails.minquantity) {
+      // Check real-time stock levels and handle accordingly
+      if (realTimeStock <= 0) {
+        // Block sales if real-time stock is 0 or negative
+        showError(`Out of Stock: ${enhancedProduct.name} is currently out of stock or all available quantity is already in cart. Available: ${realTimeStock}, In Cart: ${existingCartQuantity}`);
+        setScannedCode("");
+        return; // Exit function to prevent adding the item
+      } else if (productDetails && realTimeStock <= productDetails.minquantity) {
+        // Show warning but allow sales if real-time stock <= minquantity (but not 0)
         setLowStockAlert({
           productName: enhancedProduct.name,
           currentStock: productDetails.quantity,
-          minStock: productDetails.minquantity
+          realTimeStock: realTimeStock,
+          afterScanStock: realTimeStock - 1,
+          minStock: productDetails.minquantity,
+          inCart: existingCartQuantity
         });
         
         setTimeout(() => {
@@ -1801,6 +1877,32 @@ const Sales = () => {
     e.preventDefault();
     if (!formData.buyer || formData.items.length === 0) {
       showError("Buyer and at least one item are required");
+      return;
+    }
+
+    // Check for zero stock items before submitting using real-time calculations
+    const stockIssues = [];
+    const productQuantityMap = new Map();
+    
+    // Calculate total quantities needed for each product
+    formData.items.forEach(item => {
+      const productId = item.product;
+      const currentQuantity = productQuantityMap.get(productId) || 0;
+      productQuantityMap.set(productId, currentQuantity + item.quantity);
+    });
+    
+    // Check each product's real-time stock
+    productQuantityMap.forEach((neededQuantity, productId) => {
+      const product = products.find(p => p._id === productId);
+      if (product) {
+        if (neededQuantity > product.quantity) {
+          stockIssues.push(`${product.name}: Need ${neededQuantity}, Available ${product.quantity}`);
+        }
+      }
+    });
+
+    if (stockIssues.length > 0) {
+      showError(`Cannot complete sale due to insufficient stock:\n${stockIssues.join('\n')}`);
       return;
     }
 
@@ -1994,10 +2096,20 @@ const Sales = () => {
   };
 
   const handlePrintInvoice = () => {
-    // Add a delay to ensure styles are applied
-    setTimeout(() => {
-      window.print();
-    }, 100);
+    // Ensure logo image is loaded before printing
+    const logoImg = document.querySelector('.company-logo-img');
+    if (logoImg && !logoImg.complete) {
+      logoImg.onload = () => {
+        setTimeout(() => {
+          window.print();
+        }, 500);
+      };
+    } else {
+      // Add a delay to ensure styles are applied
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    }
   };
 
   if (loading && sales.length === 0) {
@@ -2631,8 +2743,35 @@ const Sales = () => {
             {invoiceData && (
               <InvoiceContainer>
                 <InvoiceHeader>
-                  <h1>VELPAARI ENTERPRISES</h1>
-                  <h2>Sales Invoice</h2>
+                  <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', width: '100%'}}>
+                    <img 
+                      src="/logo_vp.jpeg" 
+                      alt="Velpaari Enterprises Logo" 
+                      style={{
+                        width: '60px',
+                        height: '60px',
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        border: '2px solid #2980b9'
+                      }}
+                      onError={(e) => {
+                        console.log('Logo failed to load');
+                        e.target.style.display='none';
+                      }}
+                      onLoad={(e) => {
+                        console.log('Logo loaded successfully');
+                      }}
+                      crossOrigin="anonymous"
+                    />
+                    <div style={{textAlign: 'center', flex: '1'}}>
+                      <div style={{color: '#3498db', fontSize: '28px', fontWeight: 'bold', margin: '0', lineHeight: '1.2'}}>
+                        VELPAARI ENTERPRISES
+                      </div>
+                      <div style={{color: '#666', fontSize: '16px', margin: '5px 0 0 0', fontWeight: 'normal'}}>
+                        Sales Invoice
+                      </div>
+                    </div>
+                  </div>
                 </InvoiceHeader>
 
                 <InvoiceDetails>
