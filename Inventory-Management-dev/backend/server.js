@@ -32,6 +32,7 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/profit-loss', require('./routes/profitLoss'));
 app.use('/api/rto-products', require('./routes/rtoProducts'));
 app.use('/api/uploaded-profit-sheets', require('./routes/uploadedProfitSheets'));
+app.use('/api/product-masters', require('./routes/productMasters'));
 
 // Debug: Log all routes
 console.log('✓ Routes registered successfully');

@@ -100,6 +100,16 @@ export const salesAPI = {
 export const barcodesAPI = {
   getByBarcode: (barcode) => api.get(`/barcodes/${barcode}`),
   generate: (productItemId) => api.get(`/barcodes/product-item/${productItemId}`),
+  downloadProductBarcodes: (productIds) => {
+    return api.post('/barcode/products/bulk-download', { productIds }, {
+      responseType: 'blob'
+    });
+  },
+  downloadComboBarcodes: (comboIds) => {
+    return api.post('/barcode/combos/bulk-download', { comboIds }, {
+      responseType: 'blob'
+    });
+  },
 };
 
 // Returns API
@@ -127,6 +137,7 @@ export const combosAPI = {
   getAll: () => api.get('/combos'),
   getById: (id) => api.get(`/combos/${id}`),
   getByBarcode: (barcode) => api.get(`/combos/barcode/${barcode}`),
+  getUnmapped: () => api.get('/combos/unmapped'),
   create: (formData) => {
     return api.post('/combos', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -138,6 +149,28 @@ export const combosAPI = {
     });
   },
   delete: (id) => api.delete(`/combos/${id}`),
+};
+
+// Product Masters API (Excel Upload & Combo Mapping)
+export const productMastersAPI = {
+  uploadExcel: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/product-masters/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  getUnmappedCombos: () => api.get('/product-masters/unmapped'),
+  getStats: () => api.get('/product-masters/stats'),
+  getComboByCode: (code) => api.get(`/product-masters/code/${code}`),
+  mapProductsToCombo: (comboId, products) => {
+    return api.post('/product-masters/map-products', {
+      comboId,
+      products
+    });
+  },
 };
 
 // Reports API
